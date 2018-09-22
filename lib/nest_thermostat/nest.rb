@@ -7,7 +7,7 @@ module NestThermostat
   class Nest
     attr_accessor :email, :password, :login_url, :user_agent, :auth,
       :temperature_scale, :login, :token, :user_id, :transport_url,
-      :transport_host, :structure_id, :device_id, :headers, :status,
+      :transport_host, :structure_id, :device_id, :headers,
       :updated_at, :update_every
 
     def initialize(config = {})
@@ -42,17 +42,17 @@ module NestThermostat
       }
       
       # Set device and structure       
-      @status = update_status
+      self.refresh_status
     end
     
     def status
-      if (Time.now.utc - self.updated_at) >= self.update_every              
-        @status = update_status
+      if (Time.now.utc - self.updated_at) >= self.update_every
+        self.refresh_status
       end
-      @status
+      @cache_status
     end
-
-    def update_status
+    
+    def refresh_status
       request = HTTParty.get("#{self.transport_url}/v2/mobile/user.#{self.user_id}", headers: self.headers) rescue nil
       
       result = JSON.parse(request.body) rescue nil
@@ -60,9 +60,9 @@ module NestThermostat
       self.structure_id = result['user'][user_id]['structures'][0].split('.')[1]
       self.device_id    = result['structure'][structure_id]['devices'][0].split('.')[1]
       self.updated_at   = Time.now.utc
-      result
+      @cache_status = result
     end
-
+    
     def public_ip
       status["track"][self.device_id]["last_ip"].strip
     end
@@ -111,7 +111,7 @@ module NestThermostat
         "#{self.transport_url}/v2/put/structure.#{self.structure_id}",
         body: %Q({"away_timestamp":#{Time.now.to_i},"away":#{!!state},"away_setter":0}),
         headers: self.headers
-      ) rescue nil
+      )
     end
 
     def temp_scale=(scale)
@@ -125,7 +125,7 @@ module NestThermostat
                         body:    { username: self.email, password: self.password },
                         headers: { 'User-Agent' => self.user_agent }
                       )
-
+                     
       self.auth ||= JSON.parse(login_request.body) rescue nil
       raise 'Invalid login credentials' if self.auth.has_key?('error') && self.auth['error'] == "access_denied"
     end
